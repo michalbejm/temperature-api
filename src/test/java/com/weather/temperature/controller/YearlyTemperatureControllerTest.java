@@ -47,10 +47,8 @@ class YearlyTemperatureControllerTest extends YearlyTemperatureTest {
                 .andDo(print())
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasSize(2)))
-                .andExpect(jsonPath("$[0].city", is(city)))
                 .andExpect(jsonPath("$[0].year", is(2023)))
                 .andExpect(jsonPath("$[0].averageTemperature", is(10)))
-                .andExpect(jsonPath("$[1].city", is(city)))
                 .andExpect(jsonPath("$[1].year", is(2024)))
                 .andExpect(jsonPath("$[1].averageTemperature", is(11)));
     }

@@ -1,5 +1,6 @@
 package com.weather.temperature.domain.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -15,6 +16,7 @@ public class YearlyTemperature {
     @GeneratedValue
     private Long id;
 
+    @JsonIgnore
     private String city;
 
     @Column(name = "year_value")
