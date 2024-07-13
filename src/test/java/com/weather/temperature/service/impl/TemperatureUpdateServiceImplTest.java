@@ -52,6 +52,8 @@ class TemperatureUpdateServiceImplTest {
     public void setUp() {
         when(gcpConfig.getFileName()).thenReturn(FILE_NAME);
         when(gcpConfig.getBucketName()).thenReturn(BUCKET_NAME);
+        when(gcpConfig.getProjectId()).thenReturn("project");
+        when(gcpConfig.getPubsubSubscription()).thenReturn("subscription");
     }
     @Test
     void shouldProcessValidCsvFileOnInit() {

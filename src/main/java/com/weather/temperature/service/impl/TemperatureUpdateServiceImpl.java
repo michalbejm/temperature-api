@@ -1,13 +1,20 @@
 package com.weather.temperature.service.impl;
 
 import com.google.cloud.ReadChannel;
+import com.google.cloud.pubsub.v1.AckReplyConsumer;
+import com.google.cloud.pubsub.v1.MessageReceiver;
+import com.google.cloud.pubsub.v1.Subscriber;
 import com.google.cloud.storage.Blob;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.StorageOptions;
+import com.google.pubsub.v1.ProjectSubscriptionName;
+import com.google.pubsub.v1.PubsubMessage;
 import com.weather.temperature.service.YearlyTemperatureService;
 import com.weather.temperature.service.config.GcpConfig;
 import com.weather.temperature.service.dto.CityWithYear;
 import com.weather.temperature.service.dto.YearlyTemperatureData;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -31,6 +38,8 @@ public class TemperatureUpdateServiceImpl {
     private final Storage storage;
     private final ReentrantLock lock;
 
+    private final Logger logger = LoggerFactory.getLogger(TemperatureUpdateServiceImpl.class);
+
     @Autowired
     public TemperatureUpdateServiceImpl(YearlyTemperatureService yearlyTemperatureService, GcpConfig gcpConfig) {
         this(yearlyTemperatureService, gcpConfig, StorageOptions.getDefaultInstance().getService());
@@ -46,6 +55,21 @@ public class TemperatureUpdateServiceImpl {
     @PostConstruct
     void init() {
         processFile();
+        startPubSubListener();
+    }
+
+    private void startPubSubListener() {
+
+        ProjectSubscriptionName subscriptionName = ProjectSubscriptionName.of(
+                gcpConfig.getProjectId(), gcpConfig.getPubsubSubscription());
+
+        MessageReceiver receiver = (PubsubMessage message, AckReplyConsumer consumer) -> {
+            processFile();
+            consumer.ack();
+        };
+
+        Subscriber subscriber = Subscriber.newBuilder(subscriptionName, receiver).build();
+        subscriber.startAsync().awaitRunning();
     }
 
     private void processFile() {
@@ -58,6 +82,8 @@ public class TemperatureUpdateServiceImpl {
 
         try {
             Map<CityWithYear, YearlyTemperatureData> temperatureData = new HashMap<>();
+
+            logger.info("Start processing file: " + gcpConfig.getFileName());
 
             Blob blob = storage.get(gcpConfig.getBucketName(), gcpConfig.getFileName());
             try (ReadChannel channel = blob.reader()) {
