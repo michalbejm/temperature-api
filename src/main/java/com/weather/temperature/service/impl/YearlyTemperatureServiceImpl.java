@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.RoundingMode;
 import java.util.List;
 import java.util.Map;
 
@@ -39,7 +40,8 @@ public class YearlyTemperatureServiceImpl implements YearlyTemperatureService {
         YearlyTemperature result = new YearlyTemperature();
         result.setCity(entry.getKey().city());
         result.setYear(entry.getKey().year());
-        result.setAverageTemperature(entry.getValue().getTotalTemperature().divide(entry.getValue().getCount()));
+        result.setAverageTemperature(
+                entry.getValue().getTotalTemperature().divide(entry.getValue().getCount(), RoundingMode.HALF_UP));
         return result;
     }
 }
