@@ -16,11 +16,13 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.*;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
@@ -40,6 +42,7 @@ class TemperatureUpdateServiceImplTest {
 
     private static final String BUCKET_NAME = "bucket_name";
     private static final String FILE_NAME = "file_name";
+    private static final int MAX_RETRY_COUNT = 5;
 
     @Captor
     ArgumentCaptor<FileProcessingState> stateCaptor;
@@ -180,5 +183,64 @@ class TemperatureUpdateServiceImplTest {
         assertThat(mapCaptor.getValue().get(new CityWithYear("Poznan", 2024)).getTotalTemperature())
                 .isEqualByComparingTo(BigDecimal.valueOf(28));
         assertThat(stateCaptor.getValue()).isEqualTo(fileProcessingState);
+    }
+
+    @Test
+    void shouldRetryOnExceptionUntilExceptionLimitIsReached() {
+        // given
+        String fileContent = """
+                Warsaw;2024-07-13 12:00:00.000;30.0
+                Warsaw;2024-07-12 12:00:00.000;20.0
+                Warsaw;2023-07-12 12:00:00.000;10.0
+                Poznan;2024-07-13 12:00:00.000;28.0
+                Poznan;2024-07-13 12:00:00.000;28.0""";
+        BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(BUCKET_NAME, FILE_NAME)).build();
+        storage.create(blobInfo, fileContent.getBytes());
+        when(fileProcessingStateService.getFileProcessingState(any())).thenReturn(new FileProcessingState());
+        when(gcpConfig.getLinesPerUpdate()).thenReturn(1L);
+        doThrow(new IllegalStateException()).when(fileProcessingStateService).updateProcessingState(any(), anyMap());
+        when(gcpConfig.getMaxRetryCount()).thenReturn(MAX_RETRY_COUNT);
+
+        // when
+        updateService.init();
+
+        // then
+        verify(fileProcessingStateService, times(MAX_RETRY_COUNT)).getFileProcessingState(any());
+        verify(fileProcessingStateService, times(MAX_RETRY_COUNT)).updateProcessingState(any(), anyMap());
+        verify(fileProcessingStateService, never()).completeProcessing(any(), anyMap());
+    }
+
+    @Test
+    void shouldRetryOnExceptionAndProcessTheFileWhenNoExceptionIsThrown() {
+        // given
+        String fileContent = """
+                Warsaw;2024-07-13 12:00:00.000;30.0
+                Warsaw;2024-07-12 12:00:00.000;20.0
+                Warsaw;2023-07-12 12:00:00.000;10.0""";
+        BlobInfo blobInfo = BlobInfo.newBuilder(BlobId.of(BUCKET_NAME, FILE_NAME)).build();
+        storage.create(blobInfo, fileContent.getBytes());
+        FileProcessingState fileProcessingState = new FileProcessingState();
+        when(fileProcessingStateService.getFileProcessingState(any())).thenReturn(new FileProcessingState(), fileProcessingState);
+        when(gcpConfig.getLinesPerUpdate()).thenReturn(1L);
+        doThrow(new IllegalStateException()).doNothing().when(fileProcessingStateService).updateProcessingState(any(), anyMap());
+        when(gcpConfig.getMaxRetryCount()).thenReturn(MAX_RETRY_COUNT);
+
+        // when
+        updateService.init();
+
+        // then
+        verify(fileProcessingStateService).completeProcessing(stateCaptor.capture(), mapCaptor.capture());
+        assertThat(mapCaptor.getValue()).hasSize(2);
+        assertThat(mapCaptor.getValue().get(new CityWithYear("Warsaw", 2024)).getCount())
+                .isEqualByComparingTo(BigDecimal.valueOf(2));
+        assertThat(mapCaptor.getValue().get(new CityWithYear("Warsaw", 2024)).getTotalTemperature())
+                .isEqualByComparingTo(BigDecimal.valueOf(50));
+        assertThat(mapCaptor.getValue().get(new CityWithYear("Warsaw", 2023)).getCount())
+                .isEqualByComparingTo(BigDecimal.valueOf(1));
+        assertThat(mapCaptor.getValue().get(new CityWithYear("Warsaw", 2023)).getTotalTemperature())
+                .isEqualByComparingTo(BigDecimal.valueOf(10));
+        assertThat(stateCaptor.getValue()).isEqualTo(fileProcessingState);
+        verify(fileProcessingStateService, times(2)).getFileProcessingState(any());
+        verify(fileProcessingStateService, times(4)).updateProcessingState(any(), anyMap());
     }
 }

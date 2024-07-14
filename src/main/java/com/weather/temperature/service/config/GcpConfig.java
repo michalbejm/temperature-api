@@ -21,6 +21,9 @@ public class GcpConfig {
     @Value("${com.weather.temperature.linesPerUpdate}")
     private Long linesPerUpdate;
 
+    @Value("${com.weather.temperature.maxRetryCount}")
+    private Integer maxRetryCount;
+
     public String getBucketName() {
         return bucketName;
     }
@@ -39,5 +42,9 @@ public class GcpConfig {
 
     public Long getLinesPerUpdate() {
         return linesPerUpdate;
+    }
+
+    public Integer getMaxRetryCount() {
+        return maxRetryCount;
     }
 }

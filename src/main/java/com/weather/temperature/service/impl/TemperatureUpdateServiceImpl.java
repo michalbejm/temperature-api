@@ -87,46 +87,66 @@ public class TemperatureUpdateServiceImpl {
         try {
             logger.info("Start processing file {}", gcpConfig.getFileName());
 
-            Blob blob = storage.get(gcpConfig.getBucketName(), gcpConfig.getFileName());
-            FileProcessingState processingState = fileProcessingStateService.getFileProcessingState(blob);
-            if (processingState == null) {
-                logger.info("File {} is already up-to-date", gcpConfig.getFileName());
-                return;
-            }
-            logger.info("Processing file {} from position {}", gcpConfig.getFileName(), processingState.getPosition());
-            Map<CityWithYear, YearlyTemperatureData> temperatureData = createTemperatureData(processingState);
+            int retryCount = 0;
+            while (true) {
+                Blob blob = storage.get(gcpConfig.getBucketName(), gcpConfig.getFileName());
+                FileProcessingState processingState = fileProcessingStateService.getFileProcessingState(blob);
+                if (processingState == null) {
+                    logger.info("File {} is already up-to-date", gcpConfig.getFileName());
+                    return;
+                }
+                logger.info("Processing file {} from position {}", gcpConfig.getFileName(), processingState.getPosition());
 
-            long lineCount = 0;
-            try (ReadChannel channel = blob.reader()) {
-                channel.seek(processingState.getPosition());
-
-                ByteBuffer buffer = ByteBuffer.allocate(1024 * 1024);
-
-                while (channel.read(buffer) > 0) {
-                    byte[] bytes = getBytes(buffer);
-
-                    try (BufferedReader bufferedReader = new BufferedReader(
-                            new InputStreamReader(new ByteArrayInputStream(bytes)))) {
-                        String line;
-                        while ((line = bufferedReader.readLine()) != null) {
-                            processLine(temperatureData, line);
-                            processingState.setPosition(processingState.getPosition() + line.length() + 1);
-                            lineCount++;
-                            if (lineCount % gcpConfig.getLinesPerUpdate() == 0) {
-                                logger.info("Updating processing state of file {}", gcpConfig.getFileName());
-                                fileProcessingStateService.updateProcessingState(processingState, temperatureData);
-                            }
-                        }
+                Map<CityWithYear, YearlyTemperatureData> temperatureData;
+                try (ReadChannel channel = blob.reader()) {
+                    temperatureData = processFileLineByLine(processingState, channel);
+                } catch (Exception e) {
+                    retryCount++;
+                    logger.error("An error occurred while processing the file", e);
+                    if (retryCount == gcpConfig.getMaxRetryCount()) {
+                        logger.info("Max retry limit reached while processing file {}", gcpConfig.getFileName());
+                        return;
+                    }
+                    else {
+                        logger.info("Retrying to process file {}, retry {}", gcpConfig.getFileName(), retryCount);
+                        continue;
                     }
                 }
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
 
-            fileProcessingStateService.completeProcessing(processingState, temperatureData);
+                fileProcessingStateService.completeProcessing(processingState, temperatureData);
+                return;
+            }
         } finally {
             lock.unlock();
         }
+    }
+
+    private Map<CityWithYear, YearlyTemperatureData> processFileLineByLine(FileProcessingState processingState, ReadChannel channel) throws IOException {
+        Map<CityWithYear, YearlyTemperatureData> temperatureData = createTemperatureData(processingState);
+        ByteBuffer buffer = ByteBuffer.allocate(1024 * 1024);
+        long lineCount = 0L;
+
+        channel.seek(processingState.getPosition());
+
+        while (channel.read(buffer) > 0) {
+            byte[] bytes = getBytes(buffer);
+
+            try (BufferedReader bufferedReader = new BufferedReader(
+                    new InputStreamReader(new ByteArrayInputStream(bytes)))) {
+                String line;
+                while ((line = bufferedReader.readLine()) != null) {
+                    processLine(temperatureData, line);
+                    processingState.setPosition(processingState.getPosition() + line.length() + 1);
+                    lineCount++;
+                    if (lineCount % gcpConfig.getLinesPerUpdate() == 0) {
+                        logger.info("Updating processing state of file {}", gcpConfig.getFileName());
+                        fileProcessingStateService.updateProcessingState(processingState, temperatureData);
+                    }
+                }
+            }
+        }
+
+        return temperatureData;
     }
 
     private byte[] getBytes(ByteBuffer buffer) {
