@@ -31,8 +31,6 @@ class YearlyTemperatureServiceImplTest {
 
     @Mock
     private YearlyTemperatureRepository repository;
-    @Captor
-    ArgumentCaptor<List<YearlyTemperature>> captor;
 
     @Test
     void findByCityOrderByYearAsc() {
@@ -46,25 +44,5 @@ class YearlyTemperatureServiceImplTest {
         // then
         assertThat(result).isEmpty();
         verify(repository).findByCityOrderByYearAsc(city);
-    }
-
-    @Test
-    void createYearlyTemperatures() {
-        // given
-        CityWithYear cityWithYear = new CityWithYear("Warsaw", 2024);
-        YearlyTemperatureData yearlyTemperatureData = new YearlyTemperatureData(BigDecimal.valueOf(10L));
-        yearlyTemperatureData.addTemperature(BigDecimal.valueOf(20L));
-        when(repository.saveAll(anyList())).thenReturn(List.of());
-
-        // when
-        service.createYearlyTemperatures(Map.of(cityWithYear, yearlyTemperatureData));
-
-        // then
-        verify(repository).deleteAll();
-        verify(repository).saveAll(captor.capture());
-        assertThat(captor.getValue()).hasSize(1);
-        assertThat(captor.getValue().getFirst().getCity()).isEqualTo("Warsaw");
-        assertThat(captor.getValue().getFirst().getYear()).isEqualTo(2024);
-        assertThat(captor.getValue().getFirst().getAverageTemperature()).isEqualByComparingTo(BigDecimal.valueOf(15L));
     }
 }

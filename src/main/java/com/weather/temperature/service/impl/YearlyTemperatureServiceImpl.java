@@ -27,21 +27,4 @@ public class YearlyTemperatureServiceImpl implements YearlyTemperatureService {
     public List<YearlyTemperature> findByCityOrderByYearAsc(String city) {
         return yearlyTemperatureRepository.findByCityOrderByYearAsc(city);
     }
-
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    @Override
-    public void createYearlyTemperatures(Map<CityWithYear, YearlyTemperatureData> yearlyTemperatureData) {
-        yearlyTemperatureRepository.deleteAll();
-        yearlyTemperatureRepository.saveAll(yearlyTemperatureData.entrySet().stream()
-                .map(e -> createYearlyTemperature(e)).toList());
-    }
-
-    private YearlyTemperature createYearlyTemperature(Map.Entry<CityWithYear, YearlyTemperatureData> entry) {
-        YearlyTemperature result = new YearlyTemperature();
-        result.setCity(entry.getKey().city());
-        result.setYear(entry.getKey().year());
-        result.setAverageTemperature(
-                entry.getValue().getTotalTemperature().divide(entry.getValue().getCount(), RoundingMode.HALF_UP));
-        return result;
-    }
 }

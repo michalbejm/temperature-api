@@ -9,14 +9,14 @@ import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.StorageOptions;
 import com.google.pubsub.v1.ProjectSubscriptionName;
 import com.google.pubsub.v1.PubsubMessage;
-import com.weather.temperature.service.YearlyTemperatureService;
+import com.weather.temperature.domain.entity.FileProcessingState;
+import com.weather.temperature.service.FileProcessingStateService;
 import com.weather.temperature.service.config.GcpConfig;
 import com.weather.temperature.service.dto.CityWithYear;
 import com.weather.temperature.service.dto.YearlyTemperatureData;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.PostConstruct;
@@ -33,7 +33,7 @@ import java.util.concurrent.locks.ReentrantLock;
 @Service
 public class TemperatureUpdateServiceImpl {
 
-    private final YearlyTemperatureService yearlyTemperatureService;
+    private final FileProcessingStateService fileProcessingStateService;
     private final GcpConfig gcpConfig;
     private final Storage storage;
     private final ReentrantLock lock;
@@ -41,12 +41,16 @@ public class TemperatureUpdateServiceImpl {
     private final Logger logger = LoggerFactory.getLogger(TemperatureUpdateServiceImpl.class);
 
     @Autowired
-    public TemperatureUpdateServiceImpl(YearlyTemperatureService yearlyTemperatureService, GcpConfig gcpConfig) {
-        this(yearlyTemperatureService, gcpConfig, StorageOptions.getDefaultInstance().getService());
+    public TemperatureUpdateServiceImpl(FileProcessingStateService fileProcessingStateService,
+                                        GcpConfig gcpConfig) {
+        this(fileProcessingStateService, gcpConfig, StorageOptions.getDefaultInstance().getService());
     }
 
-    TemperatureUpdateServiceImpl(YearlyTemperatureService yearlyTemperatureService, GcpConfig gcpConfig, Storage storage) {
-        this.yearlyTemperatureService = yearlyTemperatureService;
+    TemperatureUpdateServiceImpl(
+            FileProcessingStateService fileProcessingStateService,
+            GcpConfig gcpConfig,
+            Storage storage) {
+        this.fileProcessingStateService = fileProcessingStateService;
         this.gcpConfig = gcpConfig;
         this.storage = storage;
         this.lock = new ReentrantLock();
@@ -81,26 +85,37 @@ public class TemperatureUpdateServiceImpl {
         }
 
         try {
-            Map<CityWithYear, YearlyTemperatureData> temperatureData = new HashMap<>();
-
-            logger.info("Start processing file: " + gcpConfig.getFileName());
+            logger.info("Start processing file {}", gcpConfig.getFileName());
 
             Blob blob = storage.get(gcpConfig.getBucketName(), gcpConfig.getFileName());
+            FileProcessingState processingState = fileProcessingStateService.getFileProcessingState(blob);
+            if (processingState == null) {
+                logger.info("File {} is already up-to-date", gcpConfig.getFileName());
+                return;
+            }
+            logger.info("Processing file {} from position {}", gcpConfig.getFileName(), processingState.getPosition());
+            Map<CityWithYear, YearlyTemperatureData> temperatureData = createTemperatureData(processingState);
+
+            long lineCount = 0;
             try (ReadChannel channel = blob.reader()) {
+                channel.seek(processingState.getPosition());
+
                 ByteBuffer buffer = ByteBuffer.allocate(1024 * 1024);
 
-                byte[] bytes;
                 while (channel.read(buffer) > 0) {
-                    buffer.flip();
-                    bytes = new byte[buffer.remaining()];
-                    buffer.get(bytes);
-                    buffer.clear();
+                    byte[] bytes = getBytes(buffer);
 
                     try (BufferedReader bufferedReader = new BufferedReader(
                             new InputStreamReader(new ByteArrayInputStream(bytes)))) {
                         String line;
                         while ((line = bufferedReader.readLine()) != null) {
                             processLine(temperatureData, line);
+                            processingState.setPosition(processingState.getPosition() + line.length() + 1);
+                            lineCount++;
+                            if (lineCount % gcpConfig.getLinesPerUpdate() == 0) {
+                                logger.info("Updating processing state of file {}", gcpConfig.getFileName());
+                                fileProcessingStateService.updateProcessingState(processingState, temperatureData);
+                            }
                         }
                     }
                 }
@@ -108,11 +123,26 @@ public class TemperatureUpdateServiceImpl {
                 throw new RuntimeException(e);
             }
 
-            yearlyTemperatureService.createYearlyTemperatures(temperatureData);
-
+            fileProcessingStateService.completeProcessing(processingState, temperatureData);
         } finally {
             lock.unlock();
         }
+    }
+
+    private byte[] getBytes(ByteBuffer buffer) {
+        buffer.flip();
+        byte[] bytes = new byte[buffer.remaining()];
+        buffer.get(bytes);
+        buffer.clear();
+        return bytes;
+    }
+
+    private Map<CityWithYear, YearlyTemperatureData> createTemperatureData(FileProcessingState processingState) {
+        Map<CityWithYear, YearlyTemperatureData> result = new HashMap<>();
+        processingState.getPartialResults().forEach(partialResult -> result.put(
+                new CityWithYear(partialResult.getCity(), partialResult.getYear()),
+                new YearlyTemperatureData(partialResult.getTotalTemperature(), partialResult.getCount())));
+        return result;
     }
 
     private void processLine(Map<CityWithYear, YearlyTemperatureData> temperatureData, String line) {

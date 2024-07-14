@@ -7,6 +7,11 @@ public class YearlyTemperatureData {
     private BigDecimal totalTemperature;
     private BigDecimal count;
 
+    public YearlyTemperatureData(BigDecimal totalTemperature, BigDecimal count) {
+        this.totalTemperature = totalTemperature;
+        this.count = count;
+    }
+
     public YearlyTemperatureData(BigDecimal temperature) {
         this.totalTemperature = temperature;
         this.count = BigDecimal.ONE;

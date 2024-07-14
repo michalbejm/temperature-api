@@ -18,6 +18,9 @@ public class GcpConfig {
     @Value("${GCP_TEMPERATURES_SUBSCRIPTION}")
     private String pubsubSubscription;
 
+    @Value("${com.weather.temperature.linesPerUpdate}")
+    private Long linesPerUpdate;
+
     public String getBucketName() {
         return bucketName;
     }
@@ -32,5 +35,9 @@ public class GcpConfig {
 
     public String getPubsubSubscription() {
         return pubsubSubscription;
+    }
+
+    public Long getLinesPerUpdate() {
+        return linesPerUpdate;
     }
 }

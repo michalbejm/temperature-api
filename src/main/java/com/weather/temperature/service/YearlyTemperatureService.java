@@ -10,6 +10,4 @@ import java.util.Map;
 public interface YearlyTemperatureService {
 
     List<YearlyTemperature> findByCityOrderByYearAsc(String city);
-
-    void createYearlyTemperatures(Map<CityWithYear, YearlyTemperatureData> yearlyTemperatureData);
 }
