@@ -4,6 +4,7 @@ import com.weather.temperature.domain.entity.YearlyTemperature;
 import com.weather.temperature.domain.repository.YearlyTemperatureRepository;
 import com.weather.temperature.service.dto.CityWithYear;
 import com.weather.temperature.service.dto.YearlyTemperatureData;
+import com.weather.temperature.service.dto.YearlyTemperatureDto;
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -36,13 +37,20 @@ class YearlyTemperatureServiceImplTest {
     void findByCityOrderByYearAsc() {
         // given
         String city = "Warsaw";
-        when(repository.findByCityOrderByYearAsc(city)).thenReturn(List.of());
+        YearlyTemperature yearlyTemperature = new YearlyTemperature();
+        yearlyTemperature.setCity(city);
+        yearlyTemperature.setYear(2024);
+        yearlyTemperature.setTotalTemperature(BigDecimal.valueOf(50L));
+        yearlyTemperature.setCount(BigDecimal.valueOf(2L));
+        when(repository.findByCityOrderByYearAsc(city)).thenReturn(List.of(yearlyTemperature));
 
         // when
-        List<YearlyTemperature> result = service.findByCityOrderByYearAsc(city);
+        List<YearlyTemperatureDto> result = service.findByCityOrderByYearAsc(city);
 
         // then
-        assertThat(result).isEmpty();
+        assertThat(result).hasSize(1);
+        assertThat(result.getFirst().year()).isEqualTo(2024);
+        assertThat(result.getFirst().averageTemperature()).isEqualByComparingTo(BigDecimal.valueOf(25L));
         verify(repository).findByCityOrderByYearAsc(city);
     }
 }

@@ -22,7 +22,8 @@ public class YearlyTemperature {
     @Column(name = "year_value")
     private int year;
 
-    private BigDecimal averageTemperature;
+    private BigDecimal totalTemperature;
+    private BigDecimal count;
 
     public Long getId() {
         return id;
@@ -48,12 +49,20 @@ public class YearlyTemperature {
         this.year = year;
     }
 
-    public BigDecimal getAverageTemperature() {
-        return averageTemperature;
+    public BigDecimal getTotalTemperature() {
+        return totalTemperature;
     }
 
-    public void setAverageTemperature(BigDecimal averageTemperature) {
-        this.averageTemperature = averageTemperature;
+    public void setTotalTemperature(BigDecimal totalTemperature) {
+        this.totalTemperature = totalTemperature;
+    }
+
+    public BigDecimal getCount() {
+        return count;
+    }
+
+    public void setCount(BigDecimal count) {
+        this.count = count;
     }
 
     @Override

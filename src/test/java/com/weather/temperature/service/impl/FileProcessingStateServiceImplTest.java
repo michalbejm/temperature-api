@@ -11,20 +11,19 @@ import com.weather.temperature.domain.repository.FileProcessingStateRepository;
 import com.weather.temperature.domain.repository.YearlyTemperatureRepository;
 import com.weather.temperature.service.dto.CityWithYear;
 import com.weather.temperature.service.dto.YearlyTemperatureData;
-import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.*;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -46,10 +45,7 @@ class FileProcessingStateServiceImplTest {
     private static final Long GENERATION = 1L;
 
     @Captor
-    ArgumentCaptor<FileProcessingState> stateCaptor;
-
-    @Captor
-    ArgumentCaptor<List<YearlyTemperature>> listCaptor;
+    ArgumentCaptor<YearlyTemperature> captor;
 
     @Test
     void getFileProcessingStateShouldReturnNewStateWhenNoExistingStateWasFound() {
@@ -59,8 +55,8 @@ class FileProcessingStateServiceImplTest {
         storage.create(blobInfo);
         Blob blob = storage.get(BUCKET_NAME, FILE_NAME);
 
-        when(fileProcessingStateRepository.findTopByFilenameOrderByGenerationDesc(FILE_NAME))
-                .thenReturn(Optional.empty());
+        when(fileProcessingStateRepository.findByFilename(FILE_NAME)).thenReturn(Optional.empty());
+        when(fileProcessingStateRepository.save(any())).then(AdditionalAnswers.returnsFirstArg());
 
         // when
         FileProcessingState result = service.getFileProcessingState(blob);
@@ -68,13 +64,11 @@ class FileProcessingStateServiceImplTest {
         // then
         assertThat(result).isNotNull();
         assertThat(result.getFilename()).isEqualTo(FILE_NAME);
-        assertThat(result.getGeneration()).isEqualTo(GENERATION);
-        assertThat(result.isCompleted()).isFalse();
         assertThat(result.getPosition()).isEqualTo(0L);
     }
 
     @Test
-    void getFileProcessingStateShouldReturnNewStateWhenNewGenerationIsAvailable() {
+    void getFileProcessingStateShouldReturnExistingStateWhenFound() {
         // given
         BlobInfo blobInfo = BlobInfo.newBuilder(
                 BlobId.of(BUCKET_NAME, FILE_NAME, GENERATION)).build();
@@ -83,56 +77,7 @@ class FileProcessingStateServiceImplTest {
 
         FileProcessingState existingState = new FileProcessingState();
         existingState.setFilename(FILE_NAME);
-        existingState.setGeneration(GENERATION-1);
-        when(fileProcessingStateRepository.findTopByFilenameOrderByGenerationDesc(FILE_NAME))
-                .thenReturn(Optional.empty());
-
-        // when
-        FileProcessingState result = service.getFileProcessingState(blob);
-
-        // then
-        assertThat(result).isNotNull();
-        assertThat(result.getFilename()).isEqualTo(FILE_NAME);
-        assertThat(result.getGeneration()).isEqualTo(GENERATION);
-        assertThat(result.isCompleted()).isFalse();
-        assertThat(result.getPosition()).isEqualTo(0L);
-    }
-
-    @Test
-    void getFileProcessingStateShouldReturnNullWhenProcessingOfSameGenerationWasCompleted() {
-        // given
-        BlobInfo blobInfo = BlobInfo.newBuilder(
-                        BlobId.of(BUCKET_NAME, FILE_NAME, GENERATION)).build();
-        storage.create(blobInfo);
-        Blob blob = storage.get(BUCKET_NAME, FILE_NAME);
-
-        FileProcessingState existingState = new FileProcessingState();
-        existingState.setFilename(FILE_NAME);
-        existingState.setGeneration(GENERATION);
-        existingState.setCompleted(true);
-        when(fileProcessingStateRepository.findTopByFilenameOrderByGenerationDesc(FILE_NAME))
-                .thenReturn(Optional.of(existingState));
-
-        // when
-        FileProcessingState result = service.getFileProcessingState(blob);
-
-        // then
-        assertThat(result).isNull();
-    }
-
-    @Test
-    void getFileProcessingStateShouldReturnExistingStateWhenProcessingOfSameGenerationWasNotCompleted() {
-        // given
-        BlobInfo blobInfo = BlobInfo.newBuilder(
-                BlobId.of(BUCKET_NAME, FILE_NAME, GENERATION)).build();
-        storage.create(blobInfo);
-        Blob blob = storage.get(BUCKET_NAME, FILE_NAME);
-
-        FileProcessingState existingState = new FileProcessingState();
-        existingState.setFilename(FILE_NAME);
-        existingState.setGeneration(GENERATION);
-        existingState.setCompleted(false);
-        when(fileProcessingStateRepository.findTopByFilenameOrderByGenerationDesc(FILE_NAME))
+        when(fileProcessingStateRepository.findByFilename(FILE_NAME))
                 .thenReturn(Optional.of(existingState));
 
         // when
@@ -143,53 +88,56 @@ class FileProcessingStateServiceImplTest {
     }
 
     @Test
-    void updateProcessingState() {
+    void updateProcessingStateShouldCreateNewEntityIfDoesNotExist() {
         // given
         FileProcessingState fileProcessingState = new FileProcessingState();
         fileProcessingState.setFilename(FILE_NAME);
-        fileProcessingState.setGeneration(GENERATION);
 
         Map<CityWithYear, YearlyTemperatureData> temperatureData = Map.of(
                 new CityWithYear("Warsaw", 2024),
                 new YearlyTemperatureData(BigDecimal.valueOf(50L), BigDecimal.valueOf(2L)));
+
+        when(yearlyTemperatureRepository.findByCityAndYear("Warsaw", 2024)).thenReturn(Optional.empty());
 
         // when
         service.updateProcessingState(fileProcessingState, temperatureData);
 
         // then
-        verify(fileProcessingStateRepository).save(stateCaptor.capture());
-        assertThat(stateCaptor.getValue().getPartialResults()).hasSize(1);
-        assertThat(stateCaptor.getValue().getPartialResults().getFirst().getCity()).isEqualTo("Warsaw");
-        assertThat(stateCaptor.getValue().getPartialResults().getFirst().getYear()).isEqualTo(2024);
-        assertThat(stateCaptor.getValue().getPartialResults().getFirst().getTotalTemperature()).isEqualByComparingTo(BigDecimal.valueOf(50L));
-        assertThat(stateCaptor.getValue().getPartialResults().getFirst().getCount()).isEqualByComparingTo(BigDecimal.valueOf(2L));
+        verify(fileProcessingStateRepository).save(fileProcessingState);
+        verify(yearlyTemperatureRepository).save(captor.capture());
+        assertThat(captor.getValue().getCity()).isEqualTo("Warsaw");
+        assertThat(captor.getValue().getYear()).isEqualTo(2024);
+        assertThat(captor.getValue().getTotalTemperature()).isEqualByComparingTo(BigDecimal.valueOf(50));
+        assertThat(captor.getValue().getCount()).isEqualByComparingTo(BigDecimal.valueOf(2));
     }
 
     @Test
-    void completeProcessing() {
+    void updateProcessingStateShouldUpdateExistingEntity() {
         // given
         FileProcessingState fileProcessingState = new FileProcessingState();
         fileProcessingState.setFilename(FILE_NAME);
-        fileProcessingState.setGeneration(GENERATION);
 
         Map<CityWithYear, YearlyTemperatureData> temperatureData = Map.of(
                 new CityWithYear("Warsaw", 2024),
                 new YearlyTemperatureData(BigDecimal.valueOf(50L), BigDecimal.valueOf(2L)));
 
+        YearlyTemperature yearlyTemperature = new YearlyTemperature();
+        yearlyTemperature.setCity("Warsaw");
+        yearlyTemperature.setYear(2024);
+        yearlyTemperature.setCount(BigDecimal.valueOf(3));
+        yearlyTemperature.setTotalTemperature(BigDecimal.valueOf(100));
+
+        when(yearlyTemperatureRepository.findByCityAndYear("Warsaw", 2024)).thenReturn(Optional.of(yearlyTemperature));
+
         // when
-        service.completeProcessing(fileProcessingState, temperatureData);
+        service.updateProcessingState(fileProcessingState, temperatureData);
 
         // then
-        verify(fileProcessingStateRepository).save(stateCaptor.capture());
-        assertThat(stateCaptor.getValue().isCompleted()).isTrue();
-        assertThat(stateCaptor.getValue().getPartialResults()).isEmpty();
-        assertThat(stateCaptor.getValue().getPosition()).isNull();
-
-        verify(yearlyTemperatureRepository).deleteAll();
-        verify(yearlyTemperatureRepository).saveAll(listCaptor.capture());
-        assertThat(listCaptor.getValue()).hasSize(1);
-        assertThat(listCaptor.getValue().getFirst().getCity()).isEqualTo("Warsaw");
-        assertThat(listCaptor.getValue().getFirst().getYear()).isEqualTo(2024);
-        assertThat(listCaptor.getValue().getFirst().getAverageTemperature()).isEqualByComparingTo(BigDecimal.valueOf(25L));
+        verify(fileProcessingStateRepository).save(fileProcessingState);
+        verify(yearlyTemperatureRepository).save(captor.capture());
+        assertThat(captor.getValue().getCity()).isEqualTo("Warsaw");
+        assertThat(captor.getValue().getYear()).isEqualTo(2024);
+        assertThat(captor.getValue().getTotalTemperature()).isEqualByComparingTo(BigDecimal.valueOf(150));
+        assertThat(captor.getValue().getCount()).isEqualByComparingTo(BigDecimal.valueOf(5));
     }
 }

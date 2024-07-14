@@ -1,7 +1,6 @@
 package com.weather.temperature.service.impl;
 
 import com.google.cloud.storage.Blob;
-import com.weather.temperature.domain.entity.FileProcessingPartialResult;
 import com.weather.temperature.domain.entity.FileProcessingState;
 import com.weather.temperature.domain.entity.YearlyTemperature;
 import com.weather.temperature.domain.repository.FileProcessingStateRepository;
@@ -13,10 +12,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.math.RoundingMode;
-import java.util.ArrayList;
-import java.util.Map;
-import java.util.Optional;
+import java.math.BigDecimal;
+import java.util.*;
 
 @Transactional(propagation = Propagation.REQUIRES_NEW)
 @Service
@@ -33,61 +30,41 @@ public class FileProcessingStateServiceImpl implements FileProcessingStateServic
 
     @Override
     public FileProcessingState getFileProcessingState(Blob blob) {
-        Optional<FileProcessingState> previousState = fileProcessingStateRepository
-                .findTopByFilenameOrderByGenerationDesc(blob.getName());
+        Optional<FileProcessingState> previousState = fileProcessingStateRepository.findByFilename(blob.getName());
 
-        FileProcessingState currentState;
-        if (previousState.isPresent() &&
-                previousState.get().getGeneration().equals(blob.getGeneration())) {
-            if (previousState.get().isCompleted()) {
-                return null;
-            }
-            else {
-                currentState = previousState.get();
-            }
+        if (previousState.isPresent()) {
+            return previousState.get();
         }
         else {
-            currentState = new FileProcessingState();
-            currentState.setFilename(blob.getName());
-            currentState.setGeneration(blob.getGeneration());
-            fileProcessingStateRepository.save(currentState);
+            FileProcessingState newState = new FileProcessingState();
+            newState.setFilename(blob.getName());
+            return fileProcessingStateRepository.save(newState);
         }
-        return currentState;
     }
 
     @Override
     public void updateProcessingState(FileProcessingState processingState, Map<CityWithYear, YearlyTemperatureData> temperatureData) {
-        processingState.setPartialResults(temperatureData.entrySet().stream()
-                .map(entry -> createFileProcessingPartialResult(entry)).toList());
         fileProcessingStateRepository.save(processingState);
+
+        for (Map.Entry<CityWithYear, YearlyTemperatureData> entry : temperatureData.entrySet()) {
+            Optional<YearlyTemperature> existingYearlyTemperature = yearlyTemperatureRepository.findByCityAndYear(
+                    entry.getKey().city(), entry.getKey().year());
+            YearlyTemperature yearlyTemperature = existingYearlyTemperature.orElse(
+                    createYearlyTemperature(entry.getKey()));
+            yearlyTemperature.setTotalTemperature(
+                    yearlyTemperature.getTotalTemperature().add(entry.getValue().getTotalTemperature()));
+            yearlyTemperature.setCount(
+                    yearlyTemperature.getCount().add(entry.getValue().getCount()));
+            yearlyTemperatureRepository.save(yearlyTemperature);
+        }
     }
 
-    private FileProcessingPartialResult createFileProcessingPartialResult(Map.Entry<CityWithYear, YearlyTemperatureData> entry) {
-        FileProcessingPartialResult result = new FileProcessingPartialResult();
-        result.setCity(entry.getKey().city());
-        result.setYear(entry.getKey().year());
-        result.setTotalTemperature(entry.getValue().getTotalTemperature());
-        result.setCount(entry.getValue().getCount());
-        return result;
-    }
-
-    @Override
-    public void completeProcessing(FileProcessingState processingState, Map<CityWithYear, YearlyTemperatureData> temperatureData) {
-        processingState.setCompleted(true);
-        processingState.setPartialResults(new ArrayList<>());
-        processingState.setPosition(null);
-        fileProcessingStateRepository.save(processingState);
-        yearlyTemperatureRepository.deleteAll();
-        yearlyTemperatureRepository.saveAll(temperatureData.entrySet().stream()
-                .map(e -> createYearlyTemperature(e)).toList());
-    }
-
-    private YearlyTemperature createYearlyTemperature(Map.Entry<CityWithYear, YearlyTemperatureData> entry) {
+    YearlyTemperature createYearlyTemperature(CityWithYear cityWithYear) {
         YearlyTemperature result = new YearlyTemperature();
-        result.setCity(entry.getKey().city());
-        result.setYear(entry.getKey().year());
-        result.setAverageTemperature(
-                entry.getValue().getTotalTemperature().divide(entry.getValue().getCount(), RoundingMode.HALF_UP));
+        result.setCity(cityWithYear.city());
+        result.setYear(cityWithYear.year());
+        result.setCount(BigDecimal.ZERO);
+        result.setTotalTemperature(BigDecimal.ZERO);
         return result;
     }
 }

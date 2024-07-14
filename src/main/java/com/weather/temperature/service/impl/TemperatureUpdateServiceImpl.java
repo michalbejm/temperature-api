@@ -97,9 +97,9 @@ public class TemperatureUpdateServiceImpl {
                 }
                 logger.info("Processing file {} from position {}", gcpConfig.getFileName(), processingState.getPosition());
 
-                Map<CityWithYear, YearlyTemperatureData> temperatureData;
                 try (ReadChannel channel = blob.reader()) {
-                    temperatureData = processFileLineByLine(processingState, channel);
+                    processFileLineByLine(processingState, channel);
+                    return;
                 } catch (Exception e) {
                     retryCount++;
                     logger.error("An error occurred while processing the file", e);
@@ -109,20 +109,16 @@ public class TemperatureUpdateServiceImpl {
                     }
                     else {
                         logger.info("Retrying to process file {}, retry {}", gcpConfig.getFileName(), retryCount);
-                        continue;
                     }
                 }
-
-                fileProcessingStateService.completeProcessing(processingState, temperatureData);
-                return;
             }
         } finally {
             lock.unlock();
         }
     }
 
-    private Map<CityWithYear, YearlyTemperatureData> processFileLineByLine(FileProcessingState processingState, ReadChannel channel) throws IOException {
-        Map<CityWithYear, YearlyTemperatureData> temperatureData = createTemperatureData(processingState);
+    private void processFileLineByLine(FileProcessingState processingState, ReadChannel channel) throws IOException {
+        Map<CityWithYear, YearlyTemperatureData> temperatureData = new HashMap<>();
         ByteBuffer buffer = ByteBuffer.allocate(1024 * 1024);
         long lineCount = 0L;
 
@@ -141,12 +137,13 @@ public class TemperatureUpdateServiceImpl {
                     if (lineCount % gcpConfig.getLinesPerUpdate() == 0) {
                         logger.info("Updating processing state of file {}", gcpConfig.getFileName());
                         fileProcessingStateService.updateProcessingState(processingState, temperatureData);
+                        temperatureData.clear();
                     }
                 }
             }
         }
 
-        return temperatureData;
+        fileProcessingStateService.updateProcessingState(processingState, temperatureData);
     }
 
     private byte[] getBytes(ByteBuffer buffer) {
@@ -155,14 +152,6 @@ public class TemperatureUpdateServiceImpl {
         buffer.get(bytes);
         buffer.clear();
         return bytes;
-    }
-
-    private Map<CityWithYear, YearlyTemperatureData> createTemperatureData(FileProcessingState processingState) {
-        Map<CityWithYear, YearlyTemperatureData> result = new HashMap<>();
-        processingState.getPartialResults().forEach(partialResult -> result.put(
-                new CityWithYear(partialResult.getCity(), partialResult.getYear()),
-                new YearlyTemperatureData(partialResult.getTotalTemperature(), partialResult.getCount())));
-        return result;
     }
 
     private void processLine(Map<CityWithYear, YearlyTemperatureData> temperatureData, String line) {

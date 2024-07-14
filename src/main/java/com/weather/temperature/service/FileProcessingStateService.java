@@ -13,7 +13,4 @@ public interface FileProcessingStateService {
 
     void updateProcessingState(FileProcessingState processingState,
                                Map<CityWithYear, YearlyTemperatureData> temperatureData);
-
-    void completeProcessing(FileProcessingState processingState,
-                            Map<CityWithYear, YearlyTemperatureData> temperatureData);
 }

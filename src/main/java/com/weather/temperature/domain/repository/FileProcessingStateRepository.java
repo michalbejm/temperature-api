@@ -10,5 +10,5 @@ import java.util.Optional;
 @Repository
 public interface FileProcessingStateRepository extends JpaRepository<FileProcessingState, Long> {
 
-    Optional<FileProcessingState> findTopByFilenameOrderByGenerationDesc(String filename);
+    Optional<FileProcessingState> findByFilename(String filename);
 }

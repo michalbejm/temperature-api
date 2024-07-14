@@ -1,8 +1,7 @@
 package com.weather.temperature.controller;
 
-import com.weather.temperature.YearlyTemperatureTest;
-import com.weather.temperature.domain.entity.YearlyTemperature;
 import com.weather.temperature.service.YearlyTemperatureService;
+import com.weather.temperature.service.dto.YearlyTemperatureDto;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,7 +24,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @ExtendWith(SpringExtension.class)
 @WebMvcTest(YearlyTemperatureController.class)
-class YearlyTemperatureControllerTest extends YearlyTemperatureTest {
+class YearlyTemperatureControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
@@ -37,8 +36,8 @@ class YearlyTemperatureControllerTest extends YearlyTemperatureTest {
     void getYearlyTemperatures() throws Exception {
         // given
         String city = "Warsaw";
-        YearlyTemperature temperature1 = createYearlyTemperature(city, 2023, BigDecimal.valueOf(10L));
-        YearlyTemperature temperature2 = createYearlyTemperature(city, 2024, BigDecimal.valueOf(11L));
+        YearlyTemperatureDto temperature1 = new YearlyTemperatureDto(2023, BigDecimal.valueOf(10L));
+        YearlyTemperatureDto temperature2 = new YearlyTemperatureDto(2024, BigDecimal.valueOf(11L));
         when(yearlyTemperatureService.findByCityOrderByYearAsc(city)).thenReturn(List.of(
                 temperature1, temperature2));
 
